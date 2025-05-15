@@ -10,6 +10,7 @@ import * as apigatewayv2_integrations from 'aws-cdk-lib/aws-apigatewayv2-integra
 import { bedrock as bedrock } from '@cdklabs/generative-ai-cdk-constructs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as amplify from '@aws-cdk/aws-amplify-alpha';
+import * as path from 'path';
 
 export class BlueberryStackMain extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -147,6 +148,32 @@ export class BlueberryStackMain extends cdk.Stack {
       agent: agent,
       description: 'Production alias for the agent',
     })
+
+    
+
+    const notificationFn = new lambda.Function(this, 'NotifyAdminFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromDockerBuild('lambda/email'), 
+      architecture: lambdaArchitecture,
+      environment: {
+        VERIFIED_SOURCE_EMAIL: process.env.VERIFIED_SOURCE_EMAIL!,
+        ADMIN_EMAIL: process.env.ADMIN_EMAIL!,
+      },
+      timeout: cdk.Duration.seconds(60),
+    });
+    
+    // 2) Create the Action Group
+    const notifyActionGroup = new bedrock.AgentActionGroup({
+      name: 'notify-admin',
+      description: 'Sends an admin email when the agent needs assistance.',
+      executor: bedrock.ActionGroupExecutor.fromlambdaFunction(notificationFn),
+      enabled: true,
+      apiSchema: bedrock.ApiSchema.fromLocalAsset(path.join(__dirname, '../lambda/notify-admin-schema.yaml')),
+    });
+    
+    // 3) Attach to your Bedrock Agent
+    agent.addActionGroup(notifyActionGroup);
 
 
 
