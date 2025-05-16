@@ -128,17 +128,36 @@ export class BlueberryStackMain extends cdk.Stack {
       }
 
 
-    const prompt_for_agent = 
-    `You are an AI assistant designed to help users retrieve accurate and relevant information from the knowledge base. Answer questions based on the available documents. If you are unsure or the confidence score is low, inform the user instead of making assumptions.
-      - If the confidence score is above 90%, provide a direct answer and send the confidence score.
-      - If the confidence score is below 90%, say: "I couldn't find a reliable answer in the knowledge base. Please refine your query or provide more details."
-      - Always maintain a professional, concise, and clear response format.`
+      const prompt_for_agent = 
+      `You are a helpful AI assistant backed by a knowledge base.
+      
+      1. On every user question:
+         • Query the KB and compute a confidence score (1-100).
+         • If confidence ≥ 90:
+             - Reply with the direct answer and include “(confidence: X%)”.
+             - Do not ask for email or escalate.
+         • If confidence < 90:
+             - Say: “I'm sorry, I don't have a reliable answer right now.  
+                      Could you please share your email so I can escalate this to an administrator for further help?”
+             - Wait for the user to supply an email address.
+      
+      2. Once you receive a valid email address:
+         • Call the action group function notify-admin with these parameters:
+             - **email**: the user's email
+             - **querytext**: the original question they asked
+             - **agentResponse**: the best partial answer or summary you produced (even if low confidence)
+         • After invoking, reply to the user:
+             - “Thanks! An administrator has been notified and will follow up at [email]. Would you like to ask any other questions?”
+      
+      Always keep your tone professional, concise, and clear.`
+      
 
     const agent = new bedrock.Agent(this, 'Agent', {
       name: 'Agent-with-knowledge-base',
       description: 'This agent is responsible for processing non-quantitative queries using PDF files and knowledge base.',
       foundationModel: cris_nova,
       shouldPrepareAgent: true,
+      userInputEnabled:true,
       knowledgeBases: [kb],
       existingRole: bedrockRoleAgent,
       instruction: prompt_for_agent,
@@ -174,6 +193,61 @@ export class BlueberryStackMain extends cdk.Stack {
     
     // 3) Attach to your Bedrock Agent
     agent.addActionGroup(notifyActionGroup);
+
+    const webSocketApi = new apigatewayv2.WebSocketApi(this, 'web-socket-api', {
+      apiName: 'web-socket-api',
+    });
+
+    const webSocketStage = new apigatewayv2.WebSocketStage(this, 'web-socket-stage', {
+      webSocketApi,
+      stageName: 'production',
+      autoDeploy: true,
+    });
+
+
+    const cfEvaluator = new lambda.Function(this, 'cfEvaluator', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromDockerBuild('lambda/cfEvaluator'), 
+      architecture: lambdaArchitecture,
+      environment: {
+        WS_API_ENDPOINT: webSocketStage.callbackUrl,
+        AGENT_ID: agent.agentId,
+        AGENT_ALIAS_ID: AgentAlias.aliasId,
+      },
+      timeout: cdk.Duration.seconds(120),
+    });
+
+    BlueberryData.grantRead(cfEvaluator);
+
+    cfEvaluator.role?.addManagedPolicy(
+      cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonBedrockFullAccess'),
+    );
+    // api gateway 
+    cfEvaluator.role?.addManagedPolicy(
+      cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonAPIGatewayInvokeFullAccess'),
+    );
+
+    const webSocketHandler = new lambda.Function(this, 'web-socket-handler', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      code: lambda.Code.fromAsset('lambda/websocketHandler'),
+      handler: 'handler.lambda_handler',
+      timeout: cdk.Duration.seconds(120),
+      environment: {
+        RESPONSE_FUNCTION_ARN: cfEvaluator.functionArn
+      }
+    });
+
+    cfEvaluator.grantInvoke(webSocketHandler)
+
+    const webSocketIntegration = new apigatewayv2_integrations.WebSocketLambdaIntegration('web-socket-integration', webSocketHandler);
+
+    webSocketApi.addRoute('sendMessage',
+      {
+        integration: webSocketIntegration,
+        returnResponse: true
+      }
+    );
 
 
 
