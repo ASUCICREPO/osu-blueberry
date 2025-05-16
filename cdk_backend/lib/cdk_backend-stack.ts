@@ -15,6 +15,7 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ses from 'aws-cdk-lib/aws-ses';
 import * as sesActions from 'aws-cdk-lib/aws-ses-actions';
 import { AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId } from 'aws-cdk-lib/custom-resources';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 
 
 export class BlueberryStackMain extends cdk.Stack {
@@ -296,56 +297,7 @@ export class BlueberryStackMain extends cdk.Stack {
 
 
 
-    const userPool = new cognito.UserPool(this, 'Blueberry-User-Pool', {
-      userPoolName: 'Blueberry-User-Pool',
-      selfSignUpEnabled: true,
-      signInAliases: { email: true },
-      autoVerify: { email: true },
-      passwordPolicy: {
-        minLength: 8,
-        requireLowercase: true,
-        requireDigits: true,
-        requireSymbols: false,
-        requireUppercase: false,
-      },
-      standardAttributes: {
-        email: { required: true, mutable: true },
-        givenName: { required: true, mutable: true },
-        familyName: { required: true, mutable: true },
-      },
-      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-    });
-
-
-    const userPoolClient = userPool.addClient('Blueberry-User-Pool-Client', {
-      userPoolClientName: 'Blueberry-User-Pool-Client',
-      authFlows: {
-        userSrp: true,
-        userPassword: true,
-        adminUserPassword: true
-      },
-      oAuth: {
-        flows: {
-          authorizationCodeGrant: true,
-          implicitCodeGrant: true
-        },
-        scopes: [
-          cognito.OAuthScope.OPENID,
-          cognito.OAuthScope.EMAIL,
-          cognito.OAuthScope.PHONE,
-          cognito.OAuthScope.PROFILE
-        ],
-        // callbackUrls: [`${appUrl}/callback`,"http://localhost:3000/callback"],
-        // logoutUrls: [`${appUrl}/home`, "http://localhost:3000/home"],
-        callbackUrls: ["http://localhost:3000/admin-dashboard"],
-        logoutUrls: ["http://localhost:3000/"],
-      },
-      generateSecret: false,
-      preventUserExistenceErrors: true,
-      supportedIdentityProviders: [
-        cognito.UserPoolClientIdentityProvider.COGNITO,
-      ]
-    });
+    
 
 
     const emailHandler = new lambda.Function(this, 'blueberry-emailReply', {
@@ -421,6 +373,165 @@ export class BlueberryStackMain extends cdk.Stack {
     emailHandler.addToRolePolicy(bedrockPolicy);
 
     
+    const userPool = new cognito.UserPool(this, 'Blueberry-User-Pool', {
+      userPoolName: 'Blueberry-User-Pool',
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: false,
+        requireDigits: false,
+        requireSymbols: false,
+        requireUppercase: false,
+      },
+      standardAttributes: {
+        email: { required: true, mutable: true },
+        givenName: { required: true, mutable: true },
+        familyName: { required: true, mutable: true },
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+    });
+
+
+    const userPoolClient = userPool.addClient('Blueberry-User-Pool-Client', {
+      userPoolClientName: 'Blueberry-User-Pool-Client',
+      authFlows: {
+        userSrp: true,
+        userPassword: true,
+        adminUserPassword: true
+      },
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+          implicitCodeGrant: true
+        },
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.PHONE,
+          cognito.OAuthScope.PROFILE
+        ],
+        // callbackUrls: [`${appUrl}/callback`,"http://localhost:3000/callback"],
+        // logoutUrls: [`${appUrl}/home`, "http://localhost:3000/home"],
+        callbackUrls: ["http://localhost:3000/admin-dashboard"],
+        logoutUrls: ["http://localhost:3000/"],
+      },
+      generateSecret: false,
+      preventUserExistenceErrors: true,
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+      ]
+    });
+
+
+    const identityPool = new cognito.CfnIdentityPool(this, 'Blueberry-IdentityPool', {
+      allowUnauthenticatedIdentities: false,
+      cognitoIdentityProviders: [
+        {
+          clientId: userPoolClient.userPoolClientId,
+          providerName: userPool.userPoolProviderName,
+        },
+      ],
+    });
+
+    const authenticatedRole = new iam.Role(this, 'CognitoDefaultAuthenticatedRole', {
+      assumedBy: new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: { 'cognito-identity.amazonaws.com:aud': identityPool.ref },
+          'ForAnyValue:StringLike': { 'cognito-identity.amazonaws.com:amr': 'authenticated' },
+        },
+        'sts:AssumeRoleWithWebIdentity',
+      ),
+    });
+
+
+    authenticatedRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          's3:PutObject',
+          's3:PutObjectAcl',
+          's3:GetObject',
+        ],
+        resources: [
+          BlueberryData.bucketArn + '/*',
+        ],
+      }),
+    );
+
+    new cognito.CfnIdentityPoolRoleAttachment(this, 'IdentityPoolRoleAttachment', {
+      identityPoolId: identityPool.ref,
+      roles: {
+        authenticated: authenticatedRole.roleArn,
+      },
+    });
+
+
+    const fileHandler = new lambda.Function(this, 'FileApiHandler', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromAsset('lambda/adminFile'),  
+      memorySize: 1024,
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        BUCKET_NAME:         BlueberryData.bucketName,  
+        KNOWLEDGE_BASE_ID:   kb.knowledgeBaseId,
+        DATA_SOURCE_ID:      blueberryDataSource.dataSourceId,
+      }
+    });
+
+    BlueberryData.grantReadWrite(fileHandler);
+    fileHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: [ 'bedrock-agent:StartIngestionJob' ],
+      resources: ['*'],    
+    }));
+
+
+    const AdminApi = new apigateway.RestApi(this, 'admin_api', {
+      restApiName: 'AdminApi',
+      description: 'API to fetch S3 files',
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+      },
+    });
+
+    const userPoolAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'UserPoolAuthorizer', {
+      cognitoUserPools: [userPool], 
+    });
+
+    const files = AdminApi.root.addResource('files');
+    const single = files.addResource('{key}');
+    const sync   = AdminApi.root.addResource('sync');
+
+    const integ = new apigateway.LambdaIntegration(fileHandler, {
+      proxy: true,
+    });
+
+
+
+    // Attach methods with Cognito auth
+    [ 'GET', 'POST' ].forEach(method => {
+      files.addMethod(method, integ, {
+        authorizer: userPoolAuthorizer, 
+        authorizationType: apigateway.AuthorizationType.COGNITO,
+      });
+    });
+
+    [ 'GET', 'DELETE' ].forEach(method => {
+      single.addMethod(method, integ, {
+        authorizer: userPoolAuthorizer, 
+        authorizationType: apigateway.AuthorizationType.COGNITO,
+      });
+    });
+
+    sync.addMethod('POST', integ, {
+      authorizer: userPoolAuthorizer, 
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
 
 
 

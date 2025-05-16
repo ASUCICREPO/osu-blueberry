@@ -44,23 +44,23 @@ def lambda_handler(event, context):
         #if path == '/login' and http_method == 'POST':
             #return respond(200, {'message': 'Login endpoint (auth disabled)'})
 
-        if path == '/login' and http_method == 'POST':
-            try:
-                body = json.loads(event['body'])
-                username_input = body.get('username')
-                password_input = body.get('password')
+        # if path == '/login' and http_method == 'POST':
+        #     try:
+        #         body = json.loads(event['body'])
+        #         username_input = body.get('username')
+        #         password_input = body.get('password')
         
-                # Fetch credentials from environment
-                expected_username = os.environ.get('USERNAME')
-                expected_password = os.environ.get('PASSWORD')
+        #         # Fetch credentials from environment
+        #         expected_username = os.environ.get('USERNAME')
+        #         expected_password = os.environ.get('PASSWORD')
 
-                if username_input == expected_username and password_input == expected_password:
-                    return respond(200, {'message': 'Login successful'})
-                else:
-                    return respond(401, {'error': 'Invalid username or password'})
-            except Exception as e:
-                print(f"Error in /login handler: {str(e)}")
-                return respond(400, {'error': 'Malformed request or missing credentials'})
+        #         if username_input == expected_username and password_input == expected_password:
+        #             return respond(200, {'message': 'Login successful'})
+        #         else:
+        #             return respond(401, {'error': 'Invalid username or password'})
+        #     except Exception as e:
+        #         print(f"Error in /login handler: {str(e)}")
+        #         return respond(400, {'error': 'Malformed request or missing credentials'})
         
         
         # Public routes (no auth check)
