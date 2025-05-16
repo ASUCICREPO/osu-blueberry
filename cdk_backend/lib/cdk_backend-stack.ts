@@ -13,6 +13,9 @@ import * as amplify from '@aws-cdk/aws-amplify-alpha';
 import * as path from 'path';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ses from 'aws-cdk-lib/aws-ses';
+import * as sesActions from 'aws-cdk-lib/aws-ses-actions';
+import { AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId } from 'aws-cdk-lib/custom-resources';
+
 
 export class BlueberryStackMain extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -22,8 +25,9 @@ export class BlueberryStackMain extends cdk.Stack {
     const githubOwner = this.node.tryGetContext('githubOwner');
     const githubRepo = this.node.tryGetContext('githubRepo');
     const adminEmail = this.node.tryGetContext('adminEmail');
+    const route53EmailDomain = this.node.tryGetContext('route53EmailDomain');
 
-    if (!githubToken || !githubOwner || !githubRepo || !adminEmail) {
+    if (!githubToken || !githubOwner || !githubRepo || !adminEmail || !route53EmailDomain) {
       throw new Error(
         'Please provide all required context values: ' +
         'githubToken, githubOwner, githubRepo, and AdminEmail.\n' +
@@ -31,7 +35,8 @@ export class BlueberryStackMain extends cdk.Stack {
         '-c githubToken=your-github-token ' +
         '-c githubOwner=your-github-owner ' +
         '-c githubRepo=your-github-repo ' +
-        '-c AdminEmail=alerts@yourdomain.com'
+        '-c AdminEmail=alerts@yourdomain.com'+
+        '-c route53EmailDomain=yourdomain.com'
       );
     }
 
@@ -40,6 +45,8 @@ export class BlueberryStackMain extends cdk.Stack {
       description: 'GitHub Personal Access Token for Amplify',
       secretStringValue: cdk.SecretValue.unsafePlainText(githubToken)
     });
+
+    
 
     const aws_region = cdk.Stack.of(this).region;
     const accountId = cdk.Stack.of(this).account;
@@ -57,6 +64,13 @@ export class BlueberryStackMain extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN, 
     });
 
+    const emailBucket = new s3.Bucket(this, 'emailBucket', {
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN, 
+    });
+
+    
+
     // Create a bucket to store multimodal data extracted from input files
     const supplementalBucket = new cdk.aws_s3.Bucket(this, "SSucket", {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -71,30 +85,36 @@ export class BlueberryStackMain extends cdk.Stack {
       uri: `s3://${supplementalBucket.bucketName}`
     });
     
+    const cris_sonnet_3_5_v2 = bedrock.CrossRegionInferenceProfile.fromConfig({
+      geoRegion: bedrock.CrossRegionInferenceProfileRegion.US,
+      model: bedrock.BedrockFoundationModel.ANTHROPIC_CLAUDE_3_5_SONNET_V2_0,
+    });
 
-    const kb = new bedrock.VectorKnowledgeBase(this, 'KnowledgeBase', {
-      name: 'Blueberry-KB',
+    
+
+    const kb = new bedrock.VectorKnowledgeBase(this, 'BlueberryKnowledgeBase', {
+      name: 'Blueberry-KnowledgeBase',
       description: 'Knowledge base for Blueberry cultivation and health benefits',
       embeddingsModel: bedrock.BedrockFoundationModel.TITAN_EMBED_TEXT_V2_1024,
       instruction: "Use this knowledge base to provide accurate information about blueberries, their cultivation, health benefits, and related agricultural practices.",
-      supplementalDataStorageLocations: [supplementalS3Storage]
+      supplementalDataStorageLocations: [supplementalS3Storage],
+      
     });
 
     supplementalBucket.grantReadWrite(kb.role);
 
-    const datasource = new bedrock.S3DataSource(this, 'DataSource', {
+    const blueberryDataSource = new bedrock.S3DataSource(this, 'DataSource', {
         bucket: BlueberryData,
         knowledgeBase: kb,
-        dataSourceName: 'PDFs',
+        dataSourceName: 'PDFSource',
         parsingStrategy: bedrock.ParsingStrategy.foundationModel({
-          parsingModel: bedrock.BedrockFoundationModel.ANTHROPIC_CLAUDE_3_5_HAIKU_V1_0,
+          parsingModel: bedrock.BedrockFoundationModel.ANTHROPIC_CLAUDE_HAIKU_V1_0,
         }),
       });
 
-    const cris_nova = bedrock.CrossRegionInferenceProfile.fromConfig({
-      geoRegion: bedrock.CrossRegionInferenceProfileRegion.US,
-      model: bedrock.BedrockFoundationModel.AMAZON_NOVA_PRO_V1,
-    });
+    
+
+    
 
     const bedrockRoleAgent = new iam.Role(this, 'BedrockRole3', {
       assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
@@ -163,7 +183,7 @@ export class BlueberryStackMain extends cdk.Stack {
     const agent = new bedrock.Agent(this, 'Agent', {
       name: 'Agent-with-knowledge-base',
       description: 'This agent is responsible for processing non-quantitative queries using PDF files and knowledge base.',
-      foundationModel: cris_nova,
+      foundationModel: cris_sonnet_3_5_v2,
       shouldPrepareAgent: true,
       userInputEnabled:true,
       knowledgeBases: [kb],
@@ -180,6 +200,7 @@ export class BlueberryStackMain extends cdk.Stack {
     const senderIdentity = new ses.EmailIdentity(this, 'SenderIdentity', {
       identity: ses.Identity.email(adminEmail),
     });
+
 
 
 
@@ -325,6 +346,85 @@ export class BlueberryStackMain extends cdk.Stack {
         cognito.UserPoolClientIdentityProvider.COGNITO,
       ]
     });
+
+
+    const emailHandler = new lambda.Function(this, 'blueberry-emailReply', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      code: lambda.Code.fromAsset('lambda/emailReply'),
+      handler: 'handler.lambda_handler',
+      memorySize: 2048,
+      timeout: cdk.Duration.minutes(2),
+      environment: {
+        SOURCE_BUCKET_NAME: emailBucket.bucketName,
+        DESTINATION_BUCKET_NAME: BlueberryData.bucketName,
+        KNOWLEDGE_BASE_ID: kb.knowledgeBaseId,
+        DATA_SOURCE_ID: blueberryDataSource.dataSourceId,
+        ADMIN_EMAIL: adminEmail,
+      },
+    })
+
+    // Create SES Receipt Rule Set
+    const sesRuleSet = new ses.ReceiptRuleSet(this, 'blueberry-email-receipt-rule-set', {
+      receiptRuleSetName: 'blueberry-email-processing-rule-set',
+    });
+
+    const blueberryEmail = `blueberrybot@${route53EmailDomain}`;
+
+    const sesRule = sesRuleSet.addRule('blueberry-process-incoming-email', {
+      recipients: [blueberryEmail],
+      scanEnabled: true,
+      tlsPolicy: ses.TlsPolicy.OPTIONAL,
+    });
+
+    // Add actions to the rule
+    sesRule.addAction(new sesActions.S3({
+      bucket: emailBucket,
+      objectKeyPrefix: 'incoming/',
+    }));
+
+    sesRule.addAction(new sesActions.Lambda({
+      function: emailHandler,
+    }));
+
+    const activate = new AwsCustomResource(this, 'ActivateReceiptRuleSet', {
+      onCreate: {
+        service: 'SES',
+        action: 'setActiveReceiptRuleSet',
+        parameters: {
+          RuleSetName: sesRuleSet.receiptRuleSetName,  // matches your rule set’s name
+        },
+        // ensure this runs on every deploy if the name changes:
+        physicalResourceId: PhysicalResourceId.of(sesRuleSet.receiptRuleSetName),
+      },
+      // give it permission to call SES
+      policy: AwsCustomResourcePolicy.fromSdkCalls({
+        resources: AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+    });
+
+    
+
+    emailHandler.addPermission('AllowSESInvoke', {
+      principal: new iam.ServicePrincipal('ses.amazonaws.com'),
+      action: 'lambda:InvokeFunction',
+      sourceAccount: this.account,
+    });
+    
+    BlueberryData.grantReadWrite(emailHandler)
+    emailBucket.grantRead(emailHandler)
+
+    const bedrockPolicy = new iam.PolicyStatement({
+      actions: ['bedrock:*'],
+      resources: ['*'],
+    });
+
+    emailHandler.addToRolePolicy(bedrockPolicy);
+
+    
+
+
+
+
 
 
 
