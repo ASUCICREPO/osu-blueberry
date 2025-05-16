@@ -14,7 +14,8 @@ def send_ws_response(connection_id, response):
     if connection_id and connection_id.startswith("mock-"):
         print(f"[TEST] Skipping WebSocket send for mock ID: {connection_id}")
         return
-
+    print(f"Sending response to WebSocket connection: {connection_id}")
+    print(f"Response: {response}")
     try:
         api_gateway.post_to_connection(
             ConnectionId=connection_id,
@@ -24,8 +25,6 @@ def send_ws_response(connection_id, response):
         print(f"WebSocket error: {str(e)}")
 
 def lambda_handler(event, context):
-    connection_id = None
-
     try:
         query = event.get("querytext", "").strip()
         connection_id = event.get("connectionId")

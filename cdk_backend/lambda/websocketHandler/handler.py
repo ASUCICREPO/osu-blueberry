@@ -26,13 +26,14 @@ def lambda_handler(event, context):
         elif route_key == 'sendMessage':
             # 3. Parse message body
             body = json.loads(event.get('body', '{}'))
+            
             query = body.get('querytext', '').strip()
             location = body.get('location')  
             
             if not query:
                 raise ValueError("Empty query received")
             
-            payload_to_cf_evaluator = {'querytext': query}
+            payload_to_cf_evaluator = {'querytext': query,'connectionId': connection_id}
             if location:
                 payload_to_cf_evaluator['location'] = location
 
