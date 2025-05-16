@@ -39,31 +39,8 @@ def lambda_handler(event, context):
                 },
                 'body': ''
             }
-
-        # Public route for login (optional — now doesn't do anything special)
-        #if path == '/login' and http_method == 'POST':
-            #return respond(200, {'message': 'Login endpoint (auth disabled)'})
-
-        # if path == '/login' and http_method == 'POST':
-        #     try:
-        #         body = json.loads(event['body'])
-        #         username_input = body.get('username')
-        #         password_input = body.get('password')
         
-        #         # Fetch credentials from environment
-        #         expected_username = os.environ.get('USERNAME')
-        #         expected_password = os.environ.get('PASSWORD')
-
-        #         if username_input == expected_username and password_input == expected_password:
-        #             return respond(200, {'message': 'Login successful'})
-        #         else:
-        #             return respond(401, {'error': 'Invalid username or password'})
-        #     except Exception as e:
-        #         print(f"Error in /login handler: {str(e)}")
-        #         return respond(400, {'error': 'Malformed request or missing credentials'})
-        
-        
-        # Public routes (no auth check)
+        # routes (no auth check)
         if path == '/files' and http_method == 'GET':
             return handle_list_files()
         elif path == '/files' and http_method == 'POST':
