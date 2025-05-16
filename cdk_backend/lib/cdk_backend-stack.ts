@@ -11,6 +11,8 @@ import { bedrock as bedrock } from '@cdklabs/generative-ai-cdk-constructs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as amplify from '@aws-cdk/aws-amplify-alpha';
 import * as path from 'path';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as ses from 'aws-cdk-lib/aws-ses';
 
 export class BlueberryStackMain extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -19,9 +21,18 @@ export class BlueberryStackMain extends cdk.Stack {
     const githubToken = this.node.tryGetContext('githubToken');
     const githubOwner = this.node.tryGetContext('githubOwner');
     const githubRepo = this.node.tryGetContext('githubRepo');
+    const adminEmail = this.node.tryGetContext('adminEmail');
 
-    if (!githubToken || !githubOwner) {
-      throw new Error('Please provide the githubToken, and githubOwner in the context. like this: cdk deploy -c githubToken=your-github-token -c githubOwner=your-github-owner -c githubRepo=your-github-repo');
+    if (!githubToken || !githubOwner || !githubRepo || !adminEmail) {
+      throw new Error(
+        'Please provide all required context values: ' +
+        'githubToken, githubOwner, githubRepo, and AdminEmail.\n' +
+        'Example: cdk deploy ' +
+        '-c githubToken=your-github-token ' +
+        '-c githubOwner=your-github-owner ' +
+        '-c githubRepo=your-github-repo ' +
+        '-c AdminEmail=alerts@yourdomain.com'
+      );
     }
 
     const githubToken_secret_manager = new secretsmanager.Secret(this, 'GitHubToken2', {
@@ -43,13 +54,13 @@ export class BlueberryStackMain extends cdk.Stack {
 
     const BlueberryData = new s3.Bucket(this, 'BlueberryData', {
       enforceSSL: true,
-      versioned: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN, 
     });
 
     // Create a bucket to store multimodal data extracted from input files
     const supplementalBucket = new cdk.aws_s3.Bucket(this, "SSucket", {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      enforceSSL: true,
       autoDeleteObjects: true,
     });
 
@@ -79,8 +90,6 @@ export class BlueberryStackMain extends cdk.Stack {
           parsingModel: bedrock.BedrockFoundationModel.ANTHROPIC_CLAUDE_3_5_HAIKU_V1_0,
         }),
       });
-
-    
 
     const cris_nova = bedrock.CrossRegionInferenceProfile.fromConfig({
       geoRegion: bedrock.CrossRegionInferenceProfileRegion.US,
@@ -130,7 +139,6 @@ export class BlueberryStackMain extends cdk.Stack {
 
       const prompt_for_agent = 
       `You are a helpful AI assistant backed by a knowledge base.
-      
       1. On every user question:
          • Query the KB and compute a confidence score (1-100).
          • If confidence ≥ 90:
@@ -161,12 +169,19 @@ export class BlueberryStackMain extends cdk.Stack {
       knowledgeBases: [kb],
       existingRole: bedrockRoleAgent,
       instruction: prompt_for_agent,
+      guardrail:guardrail
     });
 
     const AgentAlias = new bedrock.AgentAlias(this, 'AgentAlias', {
       agent: agent,
       description: 'Production alias for the agent',
     })
+
+    const senderIdentity = new ses.EmailIdentity(this, 'SenderIdentity', {
+      identity: ses.Identity.email(adminEmail),
+    });
+
+
 
     
 
@@ -176,8 +191,8 @@ export class BlueberryStackMain extends cdk.Stack {
       code: lambda.Code.fromDockerBuild('lambda/email'), 
       architecture: lambdaArchitecture,
       environment: {
-        VERIFIED_SOURCE_EMAIL: process.env.VERIFIED_SOURCE_EMAIL!,
-        ADMIN_EMAIL: process.env.ADMIN_EMAIL!,
+        VERIFIED_SOURCE_EMAIL: adminEmail,
+        ADMIN_EMAIL: adminEmail,
       },
       timeout: cdk.Duration.seconds(60),
     });
@@ -193,6 +208,15 @@ export class BlueberryStackMain extends cdk.Stack {
     
     // 3) Attach to your Bedrock Agent
     agent.addActionGroup(notifyActionGroup);
+
+
+    notificationFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'ses:SendEmail',
+        'ses:SendRawEmail',
+      ],
+      resources: [ senderIdentity.emailIdentityArn ],  // restricts to this verified address
+    }));
 
     const webSocketApi = new apigatewayv2.WebSocketApi(this, 'web-socket-api', {
       apiName: 'web-socket-api',
@@ -251,9 +275,65 @@ export class BlueberryStackMain extends cdk.Stack {
 
 
 
+    const userPool = new cognito.UserPool(this, 'Blueberry-User-Pool', {
+      userPoolName: 'Blueberry-User-Pool',
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: true,
+        requireDigits: true,
+        requireSymbols: false,
+        requireUppercase: false,
+      },
+      standardAttributes: {
+        email: { required: true, mutable: true },
+        givenName: { required: true, mutable: true },
+        familyName: { required: true, mutable: true },
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+    });
+
+
+    const userPoolClient = userPool.addClient('Blueberry-User-Pool-Client', {
+      userPoolClientName: 'Blueberry-User-Pool-Client',
+      authFlows: {
+        userSrp: true,
+        userPassword: true,
+        adminUserPassword: true
+      },
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+          implicitCodeGrant: true
+        },
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.PHONE,
+          cognito.OAuthScope.PROFILE
+        ],
+        // callbackUrls: [`${appUrl}/callback`,"http://localhost:3000/callback"],
+        // logoutUrls: [`${appUrl}/home`, "http://localhost:3000/home"],
+        callbackUrls: ["http://localhost:3000/admin-dashboard"],
+        logoutUrls: ["http://localhost:3000/"],
+      },
+      generateSecret: false,
+      preventUserExistenceErrors: true,
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+      ]
+    });
+
+
+
+
+
+
 
     // outputs
-    
+
 
 
 
