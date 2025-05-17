@@ -15,6 +15,9 @@ phases:
   pre_build:
     commands:
       - echo "Building TypeScript sources"
+      - echo "GitHub Owner is: $GITHUB_OWNER"
+      - echo "Admin email    is: $ADMIN_EMAIL"
+      - echo "Email domain   is: $ROUTE53_EMAIL_DOMAIN"
       - npm run build
       - echo "Bootstrapping CDK (no approval)..."
       - >-
@@ -29,21 +32,21 @@ phases:
     commands:
       - >-
         if [ "$ACTION" = "destroy" ]; then
-        echo "Destroying all CDK stacks...";
-        cdk destroy --all --force \
-        -c githubToken=$GITHUB_TOKEN \
-        -c githubOwner=$GITHUB_OWNER \
-        -c githubRepo=$GITHUB_REPO \
-        -c adminEmail=$ADMIN_EMAIL \
-        -c route53EmailDomain=$ROUTE53_EMAIL_DOMAIN;
+          echo "Destroying all CDK stacks...";
+          cdk destroy --all --force
+          -c githubToken=$GITHUB_TOKEN
+          -c githubOwner=$GITHUB_OWNER
+          -c githubRepo=$GITHUB_REPO
+          -c adminEmail=$ADMIN_EMAIL
+          -c route53EmailDomain=$ROUTE53_EMAIL_DOMAIN;
         else
-        echo "Deploying all CDK stacks...";
-        cdk deploy --all --require-approval never \
-        -c githubToken=$GITHUB_TOKEN \
-        -c githubOwner=$GITHUB_OWNER \
-        -c githubRepo=$GITHUB_REPO \
-        -c adminEmail=$ADMIN_EMAIL \
-        -c route53EmailDomain=$ROUTE53_EMAIL_DOMAIN;
+          echo "Deploying all CDK stacks...";
+          cdk deploy --all --require-approval never
+          -c githubToken=$GITHUB_TOKEN
+          -c githubOwner=$GITHUB_OWNER
+          -c githubRepo=$GITHUB_REPO
+          -c adminEmail=$ADMIN_EMAIL
+          -c route53EmailDomain=$ROUTE53_EMAIL_DOMAIN;
         fi
 
   post_build:
