@@ -1,96 +1,124 @@
 import os
 import json
 from datetime import datetime, timedelta
-import boto3
-from boto3.dynamodb.conditions import Attr
 from collections import defaultdict
 
-# Environment
-TABLE_NAME = os.environ['DYNAMODB_TABLE']
+import boto3
+from boto3.dynamodb.conditions import Attr
 
-# AWS clients
-ddb   = boto3.resource('dynamodb')
+# ──────────────────────────────────────────────────────────────────────────────
+#  Env & AWS clients
+# ──────────────────────────────────────────────────────────────────────────────
+TABLE_NAME = os.environ["DYNAMODB_TABLE"]
+ddb   = boto3.resource("dynamodb")
 table = ddb.Table(TABLE_NAME)
 
-def lambda_handler(event, context):
-    # 1) Parse timeframe parameter
-    params = event.get('queryStringParameters') or {}
-    tf = params.get('timeframe', 'today').lower()
-    
-    now = datetime.utcnow()
-    if tf == 'today':
-        start = datetime(now.year, now.month, now.day)
-        end   = now
-    elif tf == 'weekly':
-        start = now - timedelta(days=now.weekday())
-        start = datetime(start.year, start.month, start.day)
-        end   = now
-    elif tf == 'monthly':
-        start = datetime(now.year, now.month, 1)
-        end   = now
-    elif tf == 'yearly':
-        start = datetime(now.year, 1, 1)
-        end   = now
-    else:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'error': f'Invalid timeframe "{tf}"'})
-        }
-    
-    start_iso = start.isoformat()
-    end_iso   = end.isoformat()
-    
-    # 3) Scan DynamoDB for items in this window
-    filter_exp = Attr('original_ts').between(start_iso, end_iso)
+# ──────────────────────────────────────────────────────────────────────────────
+#  Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+def log(*msg):
+    print("[ANALYTICS]", *msg)
 
-    # Use ExpressionAttributeNames to escape "location"
+
+def bad_request(msg):
+    return {
+        "statusCode": 400,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+        },
+        "body": json.dumps({"error": msg}),
+    }
+
+
+def ok(body_dict):
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+        },
+        "body": json.dumps(body_dict),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Lambda entry-point
+# ──────────────────────────────────────────────────────────────────────────────
+def lambda_handler(event, context):
+    log("=== NEW INVOCATION ============================================")
+    log("Raw queryStringParameters :", event.get("queryStringParameters"))
+
+    # 1) Parse timeframe
+    params = event.get("queryStringParameters") or {}
+    tf = (params.get("timeframe") or "today").lower()
+
+    now = datetime.utcnow()
+    if tf == "today":
+        start = datetime(now.year, now.month, now.day)
+    elif tf == "weekly":
+        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif tf == "monthly":
+        start = datetime(now.year, now.month, 1)
+    elif tf == "yearly":
+        start = datetime(now.year, 1, 1)
+    else:
+        return bad_request(f'Invalid timeframe "{tf}"')
+
+    end = now
+    log("Timeframe                 :", tf)
+    log("Start / End UTC           :", start, "/", end)
+
+    # 2) Build filter & projection
+    start_iso, end_iso = start.isoformat(), end.isoformat()
+    filter_exp = Attr("original_ts").between(start_iso, end_iso)
+    projection = "session_id, #loc, category"
+    expr_names = { "#loc": "location" }
+
+    # 3) Scan in pages
+    items = []
     resp = table.scan(
         FilterExpression=filter_exp,
-        ProjectionExpression="session_id, #loc, category",
-        ExpressionAttributeNames={ "#loc": "location" }
+        ProjectionExpression=projection,
+        ExpressionAttributeNames=expr_names,
     )
+    items.extend(resp.get("Items", []))
+    log("Page 1 items              :", len(resp.get("Items", [])))
 
-    items = resp.get('Items', [])
-    while 'LastEvaluatedKey' in resp:
+    while "LastEvaluatedKey" in resp:
         resp = table.scan(
             FilterExpression=filter_exp,
-            ProjectionExpression="session_id, #loc, category",
-            ExpressionAttributeNames={ "#loc": "location" },
-            ExclusiveStartKey=resp['LastEvaluatedKey']
+            ProjectionExpression=projection,
+            ExpressionAttributeNames=expr_names,
+            ExclusiveStartKey=resp["LastEvaluatedKey"],
         )
-        items.extend(resp.get('Items', []))
-    
+        log("…Next page items          :", len(resp.get("Items", [])))
+        items.extend(resp.get("Items", []))
+
+    log("TOTAL items scanned       :", len(items))
+
     # 4) Aggregate
-    sessions = set()
-    loc_counts = defaultdict(int)
-    cat_counts = defaultdict(int)
-    
+    sessions, loc_counts, cat_counts = set(), defaultdict(int), defaultdict(int)
+
     for it in items:
-        sid = it.get('session_id')
-        if sid:
+        if sid := it.get("session_id"):
             sessions.add(sid)
-        loc = it.get('location')  # now returned under the real "location" key
-        if loc:
+        if loc := it.get("location"):
             loc_counts[loc] += 1
-        cat = it.get('category')
-        if cat:
+        if cat := it.get("category"):
             cat_counts[cat] += 1
-    
+
     result = {
-        'timeframe':   tf,
-        'start_date':  start.strftime('%Y-%m-%d'),
-        'end_date':    end.strftime('%Y-%m-%d'),
-        'user_count':  len(sessions),
-        'locations':   list(loc_counts.keys()),
-        'categories':  dict(cat_counts)
+        "timeframe":  tf,
+        "start_date": start.strftime("%Y-%m-%d"),
+        "end_date":   end.strftime("%Y-%m-%d"),
+        "user_count": len(sessions),
+        "locations":  list(loc_counts.keys()),
+        "categories": dict(cat_counts),
     }
-    
-    return {
-        'statusCode': 200,
-        'headers': {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        },
-        'body': json.dumps(result)
-    }
+
+    log("Distinct sessions         :", len(sessions))
+    log("Distinct locations        :", len(loc_counts))
+    log("Distinct categories       :", len(cat_counts))
+    log("Returning 200")
+    return ok(result)
