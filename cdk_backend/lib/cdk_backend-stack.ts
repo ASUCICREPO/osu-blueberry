@@ -532,9 +532,8 @@ export class BlueberryStackMain extends cdk.Stack {
     const logGroupNamecfEvaluator = `/aws/lambda/${cfEvaluator.functionName}`;
 
     const sessionLogsTable = new dynamodb.Table(this, 'SessionLogsTable', {
-      tableName: 'BlueberryDashboardSessionLog',
+      tableName: 'BlueberriesDashboardSessionLogs',
       partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
-      sortKey:      { name: 'session_id', type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.RETAIN,  
     });
 
@@ -579,6 +578,31 @@ export class BlueberryStackMain extends cdk.Stack {
     });
 
     dailyRule.addTarget(new targets.LambdaFunction(sessionLogsFn));
+
+    const logclassifier = new lambda.Function(this, 'logclassifier', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromAsset('lambda/logclassifier'),  
+      timeout: cdk.Duration.seconds(30),
+      environment: {  
+        BUCKET:     dashboardLogsBucket.bucketName,
+        DYNAMODB_TABLE: sessionLogsTable.tableName,
+      },
+    });
+
+    logclassifier.grantInvoke(sessionLogsFn);
+    sessionLogsFn.addEnvironment('LOG_CLASSIFIER_FN_NAME', logclassifier.functionName);
+    dashboardLogsBucket.grantRead(logclassifier);  
+    sessionLogsTable.grantReadWriteData(logclassifier);
+
+    logclassifier.addToRolePolicy(new iam.PolicyStatement({
+      actions: [ 'bedrock-runtime:InvokeModel' ],
+      resources: ['*'],  // or lock down to your specific model ARN if you prefer
+    }));
+
+
+
+
 
 
 

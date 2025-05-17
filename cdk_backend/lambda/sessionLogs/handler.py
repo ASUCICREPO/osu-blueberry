@@ -3,15 +3,19 @@ import json
 import time
 from datetime import datetime, timedelta
 import os
+
 # Configuration
 GROUP_NAME = os.environ['GROUP_NAME']
 BUCKET = os.environ['BUCKET']
 DYNAMODB_TABLE = os.environ['DYNAMODB_TABLE']
+LOG_CLASSIFIER_FN_NAME = os.environ['LOG_CLASSIFIER_FN_NAME']
 
 # Initialize clients
 logs_client = boto3.client('logs')
 s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
+lambda_client = boto3.client('lambda')
+
 table = dynamodb.Table(DYNAMODB_TABLE)
 
 def store_session_logs():
@@ -89,14 +93,17 @@ def store_session_logs():
             Body=json.dumps(session_logs),
             ContentType='application/json'
         )
-        
-        # Update processing status
-        table.put_item(Item={
-            'date': date_str,
-            'session_id': 'SESSION_LOGS',
-            'processed_at': datetime.utcnow().isoformat(),
-            'log_count': len(session_logs)
-        })
+        payload = {
+        's3_path': f"s3://{BUCKET}/{file_key}",
+        'log_count': len(session_logs),
+        # any other fields you want to pass:
+        }
+
+        lambda_client.invoke(
+        FunctionName   = LOG_CLASSIFIER_FN_NAME,
+        InvocationType = 'Event',
+        Payload        = json.dumps(payload).encode('utf-8')
+        )
         
         print(f"Stored {len(session_logs)} session logs to s3://{BUCKET}/{file_key}")
         return {
