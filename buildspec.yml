@@ -15,9 +15,6 @@ phases:
   pre_build:
     commands:
       - echo "Building TypeScript sources"
-      - echo "GitHub Owner is: $GITHUB_OWNER"
-      - echo "Admin email    is: $ADMIN_EMAIL"
-      - echo "Email domain   is: $ROUTE53_EMAIL_DOMAIN"
       - npm run build
       - echo "Bootstrapping CDK (no approval)..."
       - >-
