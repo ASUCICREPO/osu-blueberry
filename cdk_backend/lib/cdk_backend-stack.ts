@@ -38,7 +38,7 @@ export class BlueberryStackMain extends cdk.Stack {
         '-c githubToken=your-github-token ' +
         '-c githubOwner=your-github-owner ' +
         '-c githubRepo=your-github-repo ' +
-        '-c AdminEmail=alerts@yourdomain.com'+
+        '-c adminEmail=alerts@yourdomain.com'+
         '-c route53EmailDomain=yourdomain.com'
       );
     }
