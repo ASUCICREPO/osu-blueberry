@@ -16,7 +16,9 @@ import * as ses from 'aws-cdk-lib/aws-ses';
 import * as sesActions from 'aws-cdk-lib/aws-ses-actions';
 import { AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId } from 'aws-cdk-lib/custom-resources';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
-
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as events   from 'aws-cdk-lib/aws-events';
+import * as targets  from 'aws-cdk-lib/aws-events-targets';
 
 export class BlueberryStackMain extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -47,8 +49,6 @@ export class BlueberryStackMain extends cdk.Stack {
       secretStringValue: cdk.SecretValue.unsafePlainText(githubToken)
     });
 
-    
-
     const aws_region = cdk.Stack.of(this).region;
     const accountId = cdk.Stack.of(this).account;
     console.log(`AWS Region: ${aws_region}`);
@@ -70,7 +70,6 @@ export class BlueberryStackMain extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN, 
     });
 
-    
 
     // Create a bucket to store multimodal data extracted from input files
     const supplementalBucket = new cdk.aws_s3.Bucket(this, "SSucket", {
@@ -510,8 +509,6 @@ export class BlueberryStackMain extends cdk.Stack {
       proxy: true,
     });
 
-
-
     // Attach methods with Cognito auth
     [ 'GET', 'POST' ].forEach(method => {
       files.addMethod(method, integ, {
@@ -532,24 +529,73 @@ export class BlueberryStackMain extends cdk.Stack {
       authorizationType: apigateway.AuthorizationType.COGNITO,
     });
 
+    const logGroupNamecfEvaluator = `/aws/lambda/${cfEvaluator.functionName}`;
+
+    const sessionLogsTable = new dynamodb.Table(this, 'SessionLogsTable', {
+      tableName: 'BlueberryDashboardSessionLog',
+      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
+      sortKey:      { name: 'session_id', type: dynamodb.AttributeType.STRING },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,  
+    });
+
+    const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket', {
+      bucketName: 'blueberry-dashboard-logs-bucket',
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const sessionLogsFn = new lambda.Function(this, 'SessionLogsHandler', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromAsset('lambda/sessionLogs'),  
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        GROUP_NAME: logGroupNamecfEvaluator,  
+        BUCKET:     dashboardLogsBucket.bucketName,
+        DYNAMODB_TABLE: sessionLogsTable.tableName,
+      },
+    });
+
+    sessionLogsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'logs:StartQuery',
+        'logs:GetQueryResults',
+      ],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:${logGroupNamecfEvaluator}:*`],
+    }));
+
+    dashboardLogsBucket.grantPut(sessionLogsFn);
+    sessionLogsTable.grantReadWriteData(sessionLogsFn);
+
+    const dailyRule = new events.Rule(this, 'DailySessionLogsScheduler', {
+      description: 'Trigger session-logs Lambda every night at 8:20 PM UTC',
+      schedule: events.Schedule.cron({
+        minute: '59',
+        hour:   '23',
+        day:    '*',    // every day of month
+        month:  '*',    // every month
+        year:   '*',    // every year
+      }),
+    });
+
+    dailyRule.addTarget(new targets.LambdaFunction(sessionLogsFn));
+
+
+
+    // const sessionLogs = AdminApi.root.addResource('session-logs');
+    // const sessionLogsIntegration = new apigateway.LambdaIntegration(sessionLogsFn, {
+    //   proxy: true,
+    // });
+
+    // sessionLogs.addMethod('POST', sessionLogsIntegration, {
+    //   authorizer:   userPoolAuthorizer,
+    //   authorizationType: apigateway.AuthorizationType.COGNITO,
+    // });
 
 
 
 
 
-
-
-
-
-
-
-    // outputs
-
-
-
-
-
-    
 
 
 

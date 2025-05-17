@@ -33,6 +33,8 @@ def lambda_handler(event, context):
         
         print(f"Received Query - Session: {session_id}, Location: {location}, Query: {query}")
 
+
+
         max_retries = 2
         full_response = ""
 
@@ -58,6 +60,14 @@ def lambda_handler(event, context):
 
         
         print(full_response)
+
+        print({
+            "session_id": session_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "query": query,
+            "response": full_response,
+            "location": location
+        })
 
         result = {
                 'responsetext': full_response,
