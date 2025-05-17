@@ -509,6 +509,7 @@ export class BlueberryStackMain extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: apigateway.Cors.DEFAULT_HEADERS,
       },
     });
 
@@ -517,8 +518,11 @@ export class BlueberryStackMain extends cdk.Stack {
     });
 
     const files = AdminApi.root.addResource('files');
+
     const single = files.addResource('{key}');
+
     const sync   = AdminApi.root.addResource('sync');
+
 
     const integ = new apigateway.LambdaIntegration(fileHandler, {
       proxy: true,
@@ -604,10 +608,104 @@ export class BlueberryStackMain extends cdk.Stack {
       authorizationType: apigateway.AuthorizationType.COGNITO,
     });
 
+
     const singleSession = sessionLogs.addResource('{sessionId}');
     singleSession.addMethod('GET', statsIntegration, {
       authorizer:        userPoolAuthorizer,
       authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
+
+    const amplifyApp = new amplify.App(this, 'ChatbotUIBlueberry', {
+      sourceCodeProvider: new amplify.GitHubSourceCodeProvider({
+        owner: githubOwner,
+        repository: githubRepo,
+        oauthToken: githubToken_secret_manager.secretValue
+      }),
+      buildSpec: cdk.aws_codebuild.BuildSpec.fromObjectToYaml({
+        version: '1.0',
+        frontend: {
+          phases: {
+            preBuild: {
+              commands: ['cd frontend', 'npm ci']
+            },
+            build: {
+              commands: ['npm run build']
+            }
+          },
+          artifacts: {
+            baseDirectory: 'frontend/build',
+            files: ['**/*']
+          },
+          cache: {
+            paths: ['frontend/node_modules/**/*']
+          }
+        }
+      }),
+      customRules: [
+        {
+          source: "</^[^.]+$|\\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json)$)([^.]+$)/>",
+          target: "/index.html",
+          status: amplify.RedirectStatus.REWRITE,
+        },
+        {
+          source: "/admin",
+          target: "/index.html",
+          status: amplify.RedirectStatus.REWRITE,
+        },
+        {
+          source: "/admin/<*>",
+          target: "/index.html",
+          status: amplify.RedirectStatus.REWRITE,
+        },
+      ],
+    });
+
+    const mainBranch = amplifyApp.addBranch('main', {
+      autoBuild: true,
+      stage: 'PRODUCTION'
+    });
+
+
+    mainBranch.addEnvironment('REACT_APP_WEBSOCKET_API',       webSocketStage.url);
+    mainBranch.addEnvironment('REACT_APP_COGNITO_USER_POOL_ID', userPool.userPoolId);
+    mainBranch.addEnvironment('REACT_APP_COGNITO_CLIENT_ID',    userPoolClient.userPoolClientId);
+    mainBranch.addEnvironment('REACT_APP_ANALYTICS_API',       AdminApi.url);
+    mainBranch.addEnvironment('REACT_APP_AWS_REGION',          this.region);
+    githubToken_secret_manager.grantRead(amplifyApp);
+
+
+    const triggerAmplifyBuild = new AwsCustomResource(this, 'TriggerAmplifyBuild', {
+      onCreate: {
+        service: 'Amplify',
+        action: 'startJob',
+        parameters: {
+          appId: amplifyApp.appId,
+          branchName: mainBranch.branchName,   // e.g. "main"
+          jobType: 'RELEASE',                  // or REBUILD / RETRY / etc.
+        },
+        // ensure a new physical ID on every deploy so it actually runs each time
+        physicalResourceId: PhysicalResourceId.of(`${amplifyApp.appId}-${mainBranch.branchName}-${Date.now()}`),
+      },
+      // if you also want it on updates:
+      onUpdate: {
+        service: 'Amplify',
+        action: 'startJob',
+        parameters: {
+          appId: amplifyApp.appId,
+          branchName: mainBranch.branchName,
+          jobType: 'RELEASE',
+        },
+        physicalResourceId: PhysicalResourceId.of(`${amplifyApp.appId}-${mainBranch.branchName}-${Date.now()}`),
+      },
+      policy: AwsCustomResourcePolicy.fromSdkCalls({
+        resources: [
+          // the app itself
+          `arn:aws:amplify:${this.region}:${this.account}:apps/${amplifyApp.appId}`,
+          // allow startJob on any branch/job under your "main" branch
+          `arn:aws:amplify:${this.region}:${this.account}:apps/${amplifyApp.appId}/branches/${mainBranch.branchName}/jobs/*`,
+        ],
+      }),
     });
 
 

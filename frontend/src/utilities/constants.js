@@ -100,7 +100,7 @@ export const COGNITO_USER_POOL_ID = process.env.REACT_APP_COGNITO_USER_POOL_ID;
 export const COGNITO_CLIENT_ID    = process.env.REACT_APP_COGNITO_CLIENT_ID;
 export const WEBSOCKET_API       = process.env.REACT_APP_WEBSOCKET_API;
 export const ANALYTICS_API       = process.env.REACT_APP_ANALYTICS_API;
-export const DOCUMENTS_API       = process.env.REACT_APP_DOCUMENTS_API;
+export const DOCUMENTS_API       = process.env.REACT_APP_ANALYTICS_API;
 
 
 // --------------------------------------------------------------------------------------------------------//
