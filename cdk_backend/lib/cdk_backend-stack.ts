@@ -594,20 +594,23 @@ export class BlueberryStackMain extends cdk.Stack {
       },
     });
 
+    // Allow it to read from the sessions table
+    sessionLogsTable.grantReadData(retrieveSessionLogsFn);
 
+    // 2) Hook it into API Gateway
+    const sessionLogs = AdminApi.root.addResource('session-logs');
+    const statsIntegration = new apigateway.LambdaIntegration(retrieveSessionLogsFn, { proxy: true });
 
+    sessionLogs.addMethod('GET', statsIntegration, {
+      authorizer:        userPoolAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
 
-
-
-    // const sessionLogs = AdminApi.root.addResource('session-logs');
-    // const sessionLogsIntegration = new apigateway.LambdaIntegration(sessionLogsFn, {
-    //   proxy: true,
-    // });
-
-    // sessionLogs.addMethod('POST', sessionLogsIntegration, {
-    //   authorizer:   userPoolAuthorizer,
-    //   authorizationType: apigateway.AuthorizationType.COGNITO,
-    // });
+    const singleSession = sessionLogs.addResource('{sessionId}');
+    singleSession.addMethod('GET', statsIntegration, {
+      authorizer:        userPoolAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
 
 
 
