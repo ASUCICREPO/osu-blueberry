@@ -112,8 +112,8 @@ export class BlueberryStackMain extends cdk.Stack {
         }),
       });
 
-      const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket', {
-        bucketName: 'blueberry-dashboard-logs-bucket',
+      const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket1', {
+        bucketName: 'blueberry-dashboard-logs-s3-bucket',
         enforceSSL: true,
         removalPolicy: cdk.RemovalPolicy.RETAIN,
       });
