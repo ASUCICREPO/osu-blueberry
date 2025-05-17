@@ -6,9 +6,11 @@ from datetime import datetime
 # Initialize AWS clients
 bedrock_agent = boto3.client('bedrock-agent-runtime')
 api_gateway = boto3.client('apigatewaymanagementapi', endpoint_url=os.environ['WS_API_ENDPOINT'])
+lambda_client = boto3.client('lambda')
 
 agent_id = os.environ["AGENT_ID"]
 agent_alias_id = os.environ["AGENT_ALIAS_ID"] 
+LOG_CLASSIFIER_FN_NAME = os.environ['LOG_CLASSIFIER_FN_NAME']
 
 def send_ws_response(connection_id, response):
     if connection_id and connection_id.startswith("mock-"):
@@ -32,8 +34,6 @@ def lambda_handler(event, context):
         location = event.get("location")  # Must come from frontend first time
         
         print(f"Received Query - Session: {session_id}, Location: {location}, Query: {query}")
-
-
 
         max_retries = 2
         full_response = ""
@@ -61,20 +61,29 @@ def lambda_handler(event, context):
         
         print(full_response)
 
-        print({
+        payload = {
             "session_id": session_id,
             "timestamp": datetime.utcnow().isoformat(),
             "query": query,
             "response": full_response,
             "location": location
-        })
+        }
+
+        print(payload)
 
         result = {
                 'responsetext': full_response,
-            }
+                 }
 
         if connection_id:
             send_ws_response(connection_id, result)
+
+        lambda_client.invoke(
+            FunctionName   = LOG_CLASSIFIER_FN_NAME,
+            InvocationType = 'Event',
+            Payload        = json.dumps(payload).encode('utf-8')
+        )
+
         return {'statusCode': 200, 'body': json.dumps(result)}
 
     except Exception as e:

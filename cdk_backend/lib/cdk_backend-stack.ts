@@ -112,9 +112,18 @@ export class BlueberryStackMain extends cdk.Stack {
         }),
       });
 
-    
+      const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket', {
+        bucketName: 'blueberry-dashboard-logs-bucket',
+        enforceSSL: true,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      });
 
-    
+      const sessionLogsTable = new dynamodb.Table(this, 'SessionLogsTable', {
+        tableName: 'BlueberriesDashboardSessionlogs',
+        partitionKey: { name: 'session_id', type: dynamodb.AttributeType.STRING },
+        sortKey:      { name: 'timestamp',  type: dynamodb.AttributeType.STRING },
+        removalPolicy: cdk.RemovalPolicy.DESTROY,  //for production have retain
+      });
 
     const bedrockRoleAgent = new iam.Role(this, 'BedrockRole3', {
       assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
@@ -201,11 +210,6 @@ export class BlueberryStackMain extends cdk.Stack {
       identity: ses.Identity.email(adminEmail),
     });
 
-
-
-
-    
-
     const notificationFn = new lambda.Function(this, 'NotifyAdminFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'handler.lambda_handler',
@@ -249,6 +253,22 @@ export class BlueberryStackMain extends cdk.Stack {
       autoDeploy: true,
     });
 
+    const logclassifier = new lambda.Function(this, 'logclassifier', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'handler.lambda_handler',
+      code: lambda.Code.fromAsset('lambda/logclassifier'),  
+      timeout: cdk.Duration.seconds(30),
+      environment: {  
+        BUCKET:     dashboardLogsBucket.bucketName,
+        DYNAMODB_TABLE: sessionLogsTable.tableName,
+      },
+    });
+
+    sessionLogsTable.grantReadWriteData(logclassifier)
+    dashboardLogsBucket.grantRead(logclassifier);  
+    logclassifier.role?.addManagedPolicy(
+      cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonBedrockFullAccess'),
+    );
 
     const cfEvaluator = new lambda.Function(this, 'cfEvaluator', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -259,11 +279,13 @@ export class BlueberryStackMain extends cdk.Stack {
         WS_API_ENDPOINT: webSocketStage.callbackUrl,
         AGENT_ID: agent.agentId,
         AGENT_ALIAS_ID: AgentAlias.aliasId,
+        LOG_CLASSIFIER_FN_NAME: logclassifier.functionName
       },
       timeout: cdk.Duration.seconds(120),
     });
 
     BlueberryData.grantRead(cfEvaluator);
+    logclassifier.grantInvoke(cfEvaluator);
 
     cfEvaluator.role?.addManagedPolicy(
       cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonBedrockFullAccess'),
@@ -293,11 +315,6 @@ export class BlueberryStackMain extends cdk.Stack {
         returnResponse: true
       }
     );
-
-
-
-    
-
 
     const emailHandler = new lambda.Function(this, 'blueberry-emailReply', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -531,18 +548,6 @@ export class BlueberryStackMain extends cdk.Stack {
 
     const logGroupNamecfEvaluator = `/aws/lambda/${cfEvaluator.functionName}`;
 
-    const sessionLogsTable = new dynamodb.Table(this, 'SessionLogsTable', {
-      tableName: 'BlueberriesDashboardSessionLogs',
-      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
-      removalPolicy: cdk.RemovalPolicy.RETAIN,  
-    });
-
-    const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket', {
-      bucketName: 'blueberry-dashboard-logs-bucket',
-      enforceSSL: true,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
-
     const sessionLogsFn = new lambda.Function(this, 'SessionLogsHandler', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'handler.lambda_handler',
@@ -579,27 +584,15 @@ export class BlueberryStackMain extends cdk.Stack {
 
     dailyRule.addTarget(new targets.LambdaFunction(sessionLogsFn));
 
-    const logclassifier = new lambda.Function(this, 'logclassifier', {
+    const retrieveSessionLogsFn = new lambda.Function(this, 'RetrieveSessionLogsFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'handler.lambda_handler',
-      code: lambda.Code.fromAsset('lambda/logclassifier'),  
-      timeout: cdk.Duration.seconds(30),
-      environment: {  
-        BUCKET:     dashboardLogsBucket.bucketName,
+      code:    lambda.Code.fromAsset('lambda/retrieveSessionLogs'),
+      timeout: cdk.Duration.seconds(10),
+      environment: {
         DYNAMODB_TABLE: sessionLogsTable.tableName,
       },
     });
-
-    logclassifier.grantInvoke(sessionLogsFn);
-    sessionLogsFn.addEnvironment('LOG_CLASSIFIER_FN_NAME', logclassifier.functionName);
-    dashboardLogsBucket.grantRead(logclassifier);  
-    sessionLogsTable.grantReadWriteData(logclassifier);
-
-    logclassifier.addToRolePolicy(new iam.PolicyStatement({
-      actions: [ 'bedrock-runtime:InvokeModel' ],
-      resources: ['*'],  // or lock down to your specific model ARN if you prefer
-    }));
-
 
 
 
