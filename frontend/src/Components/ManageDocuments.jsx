@@ -103,8 +103,8 @@ export default function ManageDocuments() {
         type: doc.key.split(".").pop().toUpperCase(),
         size: formatSize(doc.size),
         lastModified: formatDate(doc.last_modified),
-        url: `${DOCUMENTS_API}/files/${encodeURI(doc.key)}`,
-        deleteEndpoint: `${DOCUMENTS_API}/files/${encodeURI(doc.key)}`,
+        url:            `${DOCUMENTS_API}files/${encodeURIComponent(doc.key)}`,
+        deleteEndpoint: `${DOCUMENTS_API}files/${encodeURIComponent(doc.key)}`,
       }));
 
       setDocuments(parsed);
@@ -177,17 +177,32 @@ export default function ManageDocuments() {
   const handleDownloadFile = async (url, fileName) => {
     setError("");
     try {
-      const token = await getIdToken();
-      const res = await fetch(url, {
+      const token  = await getIdToken();
+      const res    = await fetch(url, {
         method:  "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
+  
       if (!res.ok) throw new Error("Download failed");
-      const blob   = await res.blob();
-      const blobUrl= URL.createObjectURL(blob);
-      const link   = document.createElement("a");
-      link.href    = blobUrl;
-      link.download= fileName;
+  
+      // The Lambda returns a plain text body that is BASE-64 of the bytes
+      const b64Data = await res.text();
+  
+      // Convert base64 → Uint8Array → Blob
+      const byteString = atob(b64Data.trim());
+      const byteArray  = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i++) {
+        byteArray[i] = byteString.charCodeAt(i);
+      }
+      // Use the Content-Type the Lambda sent back (falls back to octet-stream)
+      const contentType = res.headers.get("Content-Type") || "application/octet-stream";
+      const blob = new Blob([byteArray], { type: contentType });
+  
+      // Create a blob URL and download
+      const blobUrl = URL.createObjectURL(blob);
+      const link    = document.createElement("a");
+      link.href     = blobUrl;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
