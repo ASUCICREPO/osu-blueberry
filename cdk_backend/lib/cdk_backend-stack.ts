@@ -93,7 +93,6 @@ export class BlueberryStackMain extends cdk.Stack {
     
 
     const kb = new bedrock.VectorKnowledgeBase(this, 'BlueberryKnowledgeBase', {
-      name: 'Blueberry-KnowledgeBase',
       description: 'Knowledge base for Blueberry cultivation and health benefits',
       embeddingsModel: bedrock.BedrockFoundationModel.TITAN_EMBED_TEXT_V2_1024,
       instruction: "Use this knowledge base to provide accurate information about blueberries, their cultivation, health benefits, and related agricultural practices.",
@@ -106,14 +105,12 @@ export class BlueberryStackMain extends cdk.Stack {
     const blueberryDataSource = new bedrock.S3DataSource(this, 'DataSource', {
         bucket: BlueberryData,
         knowledgeBase: kb,
-        dataSourceName: 'PDFSource',
         parsingStrategy: bedrock.ParsingStrategy.foundationModel({
           parsingModel: bedrock.BedrockFoundationModel.ANTHROPIC_CLAUDE_HAIKU_V1_0,
         }),
       });
 
-      const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket1', {
-        bucketName: 'blueberry-dashboard-logs-s3-bucket',
+      const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket', {
         enforceSSL: true,
         removalPolicy: cdk.RemovalPolicy.RETAIN,
       });
@@ -136,7 +133,7 @@ export class BlueberryStackMain extends cdk.Stack {
 
 
       const guardrail = new bedrock.Guardrail(this, 'bedrockGuardrails-blueberry', {
-        name: 'ChatbotGuardrails-blueberry',
+        name: 'ChatbotGuardrails-Blueberries',
         blockedOutputsMessaging: 'I am sorry, but I cannot provide that information. Plase ask me something else.',
       });
       
