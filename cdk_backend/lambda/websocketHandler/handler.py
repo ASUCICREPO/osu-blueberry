@@ -29,11 +29,13 @@ def lambda_handler(event, context):
             
             query = body.get('querytext', '').strip()
             location = body.get('location')  
+            session_id = body.get('session_id') 
             
             if not query:
                 raise ValueError("Empty query received")
             
-            payload_to_cf_evaluator = {'querytext': query,'connectionId': connection_id}
+            payload_to_cf_evaluator = {'querytext': query,'connectionId': connection_id,"session_id":session_id}
+            
             if location:
                 payload_to_cf_evaluator['location'] = location
 

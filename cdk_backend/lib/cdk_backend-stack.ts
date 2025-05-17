@@ -234,7 +234,6 @@ export class BlueberryStackMain extends cdk.Stack {
     // 3) Attach to your Bedrock Agent
     agent.addActionGroup(notifyActionGroup);
 
-
     notificationFn.addToRolePolicy(new iam.PolicyStatement({
       actions: [
         'ses:SendEmail',
@@ -499,10 +498,9 @@ export class BlueberryStackMain extends cdk.Stack {
     });
 
     BlueberryData.grantReadWrite(fileHandler);
-    fileHandler.addToRolePolicy(new iam.PolicyStatement({
-      actions: [ 'bedrock-agent:StartIngestionJob' ],
-      resources: ['*'],    
-    }));
+    fileHandler.role?.addManagedPolicy(
+      cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonBedrockFullAccess'),
+    );
 
 
     const AdminApi = new apigateway.RestApi(this, 'admin_api', {
@@ -611,6 +609,9 @@ export class BlueberryStackMain extends cdk.Stack {
       authorizer:        userPoolAuthorizer,
       authorizationType: apigateway.AuthorizationType.COGNITO,
     });
+
+
+
 
 
 
