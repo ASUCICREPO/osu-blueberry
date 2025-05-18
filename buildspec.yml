@@ -42,7 +42,7 @@ phases:
           cdk deploy --all --require-approval never \
             -c githubToken=$GITHUB_TOKEN \
             -c githubOwner=$GITHUB_OWNER \
-            -c adminEmail=$ADMIN_EMAIL \ 
+            -c adminEmail=$ADMIN_EMAIL \
             -c route53EmailDomain=$ROUTE53_EMAIL_DOMAIN \
             -c githubRepo=$GITHUB_REPO;
         fi
