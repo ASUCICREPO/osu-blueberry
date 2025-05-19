@@ -4,8 +4,8 @@ import { v4 as uuidv4 } from "uuid";
 import UserAvatar from "../Assets/UserAvatar.svg";
 
 import ChatInput from "./ChatInput";
-import StreamingResponse from "./StreamingResponse";              // if you still stream chunks
-import BotFileCheckReply from "./BotFileCheckReply";              // remove if unused
+import StreamingResponse from "./StreamingResponse";           
+import BotFileCheckReply from "./BotFileCheckReply";             
 import createMessageBlock from "../utilities/createMessageBlock";
 import { ALLOW_FILE_UPLOAD, WEBSOCKET_API } from "../utilities/constants";
 

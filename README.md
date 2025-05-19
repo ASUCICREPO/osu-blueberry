@@ -135,15 +135,15 @@ chmod +x deploy.sh
 
 1. Clone the repository (Make sure to fork the repository first):
 ```bash
-git clone https://github.com/YOUR-USERNAME/osu-blueberry
+git clone https://github.com/<YOUR-USERNAME>/osu-blueberry
 cd osu-blueberry/
 ```
 
 2. **Set Up Your Environment**:
-   - Configure AWS CLI with your AWS account credentials:
-     ```bash
-     aws configure
-     ```
+Configure AWS CLI with your AWS account credentials:
+  ```bash
+  aws configure
+  ```
 
 3. Install dependencies:
 ```bash
