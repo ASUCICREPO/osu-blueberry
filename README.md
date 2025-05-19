@@ -52,6 +52,12 @@ The application features a serverless architecture built on AWS services, with r
   For detailed instructions, see:
   - https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
 
+- Route 53 Identity for SES (Prerequisite):
+  1. AWS Console → SES → Identity Management → **Domains**  
+  2. Click **Verify a New Domain** and enter your domain (e.g., `example.com`)  
+  3. In Route 53, add the provided TXT, MX and CNAME records  
+  4. Wait until the domain status shows **verified**
+
 - Enable the following AWS Bedrock models in your AWS account:
   - `TITAN_EMBED_TEXT_V2_1024`
   - `ANTHROPIC_CLAUDE_HAIKU_V1_0`
@@ -177,12 +183,26 @@ Once the infrastructure is deployed using either of the two approaches:
    - Click the "Sync data sources" button
    - Wait for sync to complete (status will show "Available")
 
-3. Deploy the Frontend:
+3. SES Email Verification (Post-Deployment)
+    - AWS Console → SES → Identity Management → **Email Addresses**  
+    - Click **Verify a New Email Address**  
+    - Enter your sender email and click **Verify**  
+    - Follow the link in the verification email  
+    - Ensure the email status shows **verified**
+
+4. Add User in Cognito (Post-Deployment)
+
+    - AWS Console → Cognito → **User Pools** → `YOUR_USER_POOL_ID`  
+    - Select **Users and groups** → **Create user**  
+    - Fill in **Username**, **Temporary password**, and required attributes (e.g., email)  
+    - Click **Create user** (the user will reset their password on first login)  
+
+5. Deploy the Frontend:
    - Go to AWS Console > AWS Amplify
    - Select the app created by the stack
    - Access the application URL provided by Amplify 
 
-4. Using the Application:
+6. Using the Application:
    - Once frontend deployment is complete, navigate to the Amplify URL
    - The chat interface will load with example queries
 

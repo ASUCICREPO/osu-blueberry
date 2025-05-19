@@ -15,7 +15,6 @@ import L from "leaflet";
 import axios from "axios";
 
 import AdminAppHeader from "./AdminAppHeader";
-import Logo from "../Assets/logo.svg";                       // ← still referenced if you need it
 import { DOCUMENTS_API } from "../utilities/constants";     // base URL for both APIs
 import { getIdToken } from "../utilities/auth";             // helper you already use elsewhere
 

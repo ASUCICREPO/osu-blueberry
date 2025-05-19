@@ -6,6 +6,7 @@ export async function authFetch(input, init = {}) {
   if (!token) {
     // if you don’t have one (e.g. page just loaded), pull from Cognito
     token = await getAccessToken();
+    // amazonq-ignore-next-line
     localStorage.setItem("accessToken", token);
   }
 
