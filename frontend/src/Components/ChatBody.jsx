@@ -15,7 +15,7 @@ function ChatBody() {
 
   const [messages, setMessages] = useState([
     createMessageBlock(
-      "Welcome user! In order to provide the most accurate responses, can you please tell me where you are growing blueberries?",
+      "Welcome user! In order to provide the most accurate responses, can you please tell me where you are growing blueberries in the format state, country?",
       "BOT",
       "TEXT",
       "RECEIVED"

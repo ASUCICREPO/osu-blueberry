@@ -1,3 +1,5 @@
+// AdminAnalytics.jsx
+
 import React, { useState, useEffect } from "react";
 import {
   Box,
@@ -15,13 +17,13 @@ import L from "leaflet";
 import axios from "axios";
 
 import AdminAppHeader from "./AdminAppHeader";
-import { DOCUMENTS_API } from "../utilities/constants";     // base URL for both APIs
-import { getIdToken } from "../utilities/auth";             // helper you already use elsewhere
+import { DOCUMENTS_API } from "../utilities/constants";
+import { getIdToken } from "../utilities/auth";
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
-const ANALYTICS_API = `${DOCUMENTS_API}session-logs`;       // …/prod/session-logs
+const ANALYTICS_API = `${DOCUMENTS_API}session-logs`;
 
 const defaultCategories = [
   "Chemical Registrations and MRL's",
@@ -43,14 +45,6 @@ const defaultCategories = [
   "Unknown",
 ];
 
-const locationCoordinates = {
-  Texas: [31.9686, -99.9018],
-  Tempe: [33.4255, -111.94],
-  Seattle: [47.6062, -122.3321],
-  "New York": [40.7128, -74.006],
-  California: [36.7783, -119.4179],
-};
-
 const redPin = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
   iconSize: [25, 41],
@@ -64,72 +58,103 @@ const redPin = new L.Icon({
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 export default function AdminAnalytics() {
-  const [timeframe, setTimeframe]     = useState("today");
-  const [categoryCounts, setCounts]   = useState({});
-  const [locations, setLocations]     = useState([]);
-  const [userCount, setUserCount]     = useState(0);
+  const [timeframe, setTimeframe] = useState("today");
+  const [categoryCounts, setCounts] = useState({});
+  const [locations, setLocations] = useState([]);         // unique location strings
+  const [locationCounts, setLocationCounts] = useState({}); // { "Texas, US": 12, … }
+  const [coordsMap, setCoordsMap] = useState({});        // { "Texas, US": [lat, lng], … }
+  const [userCount, setUserCount] = useState(0);
 
-  /* --------------------------- data fetch -------------------------- */
+  // 1) fetch analytics and build counts per-location
   useEffect(() => {
-    const fetchAnalytics = async () => {
+    async function fetchAnalytics() {
       try {
         const token = await getIdToken();
-
         const { data } = await axios.get(ANALYTICS_API, {
-          params : { timeframe },
+          params: { timeframe },
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        /* normalise categories so every default shows up */
+        // normalize categories
         const counts = {};
-        defaultCategories.forEach((c) => (counts[c] = data.categories?.[c] || 0));
-
+        defaultCategories.forEach((c) => {
+          counts[c] = data.categories?.[c] || 0;
+        });
         setCounts(counts);
-        setLocations(data.locations || []);
+
+        // aggregate raw locations
+        const raw = data.locations || [];
+        const locCounts = {};
+        raw.forEach((loc) => {
+          locCounts[loc] = (locCounts[loc] || 0) + 1;
+        });
+        setLocationCounts(locCounts);
+        setLocations(Object.keys(locCounts));
+
         setUserCount(data.user_count || 0);
       } catch (err) {
         console.error("Analytics fetch failed:", err);
       }
-    };
-
+    }
     fetchAnalytics();
   }, [timeframe]);
 
-  /* ------------------------------ UI ------------------------------- */
+  // 2) geocode each unique location if needed
+  useEffect(() => {
+    locations.forEach((loc) => {
+      if (coordsMap[loc]) return;
+
+      const cached = localStorage.getItem(`coords:${loc}`);
+      if (cached) {
+        setCoordsMap((m) => ({ ...m, [loc]: JSON.parse(cached) }));
+        return;
+      }
+
+      fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          loc
+        )}`
+      )
+        .then((r) => r.json())
+        .then((results) => {
+          if (results && results.length) {
+            const { lat, lon } = results[0];
+            const pair = [parseFloat(lat), parseFloat(lon)];
+            setCoordsMap((m) => ({ ...m, [loc]: pair }));
+            localStorage.setItem(`coords:${loc}`, JSON.stringify(pair));
+          }
+        })
+        .catch((e) => console.error("Geocode error for", loc, e));
+    });
+  }, [locations, coordsMap]);
+
   return (
     <Box sx={{ minHeight: "100vh" }}>
-      {/* Fixed header */}
+      {/* fixed header */}
       <Box sx={{ position: "fixed", width: "100%", zIndex: 1200 }}>
         <AdminAppHeader showSwitch={false} />
       </Box>
 
-      <Grid
-        container
-        sx={{
-          flex: 1,
-          paddingTop: "6rem", // below header
-          paddingX:  "2rem",
-        }}
-      >
-        {/* ───────────────── Left column ───────────────── */}
-        <Grid item xs={6} sx={{ padding: "2rem" }}>
+      <Grid container sx={{ flex: 1, pt: "6rem", px: "2rem" }}>
+        {/* ─── Left column: categories ─── */}
+        <Grid item xs={6} sx={{ p: 2 }}>
           <Typography variant="body2" sx={{ mb: 0.5 }}>
             Choose Timeframe:
           </Typography>
-
           <FormControl fullWidth sx={{ mb: 3 }}>
             <InputLabel />
-            <Select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+            <Select
+              value={timeframe}
+              onChange={(e) => setTimeframe(e.target.value)}
+            >
               <MenuItem value="today">Daily</MenuItem>
               <MenuItem value="weekly">Weekly</MenuItem>
               <MenuItem value="monthly">Monthly</MenuItem>
               <MenuItem value="yearly">Yearly</MenuItem>
             </Select>
           </FormControl>
-
-          {/* Category cards */}
           <Grid container spacing={2}>
-            {Object.entries(categoryCounts).map(([text, count]) => (
+            {defaultCategories.map((text) => (
               <Grid item xs={6} key={text}>
                 <Card
                   sx={{
@@ -142,7 +167,7 @@ export default function AdminAnalytics() {
                 >
                   <Box
                     sx={{
-                      width:  "60%",
+                      width: "60%",
                       height: "50px",
                       backgroundColor: "#FFF",
                       display: "flex",
@@ -156,7 +181,9 @@ export default function AdminAnalytics() {
                   </Box>
                   <Box sx={{ pl: 2 }}>
                     <Typography variant="caption">Questions Asked</Typography>
-                    <Typography variant="h5">{count}</Typography>
+                    <Typography variant="h5">
+                      {categoryCounts[text] ?? 0}
+                    </Typography>
                   </Box>
                 </Card>
               </Grid>
@@ -165,15 +192,17 @@ export default function AdminAnalytics() {
         </Grid>
 
         {/* Divider */}
-        <Divider orientation="vertical" flexItem sx={{ borderColor: "#D3D3D3", ml: 5 }} />
+        <Divider
+          orientation="vertical"
+          flexItem
+          sx={{ borderColor: "#D3D3D3", mx: 5 }}
+        />
 
-        {/* ───────────────── Right column ───────────────── */}
-        <Grid item xs={5} sx={{ p: "2rem" }}>
+        {/* ─── Right column: map & user count ─── */}
+        <Grid item xs={5} sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
             Grower Location:
           </Typography>
-
-          {/* Map */}
           <MapContainer
             center={[39.8283, -98.5795]}
             zoom={4}
@@ -181,21 +210,25 @@ export default function AdminAnalytics() {
           >
             <TileLayer
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
             />
             {locations.map((loc) => {
-              const pos = locationCoordinates[loc];
+              const pos = coordsMap[loc];
               return (
                 pos && (
                   <Marker position={pos} icon={redPin} key={loc}>
-                    <Popup>{loc}</Popup>
+                    <Popup>
+                      <div>{loc}</div>
+                      <div>
+                        {locationCounts[loc]}{" "}
+                        {locationCounts[loc] === 1 ? "grower" : "growers"}
+                      </div>
+                    </Popup>
                   </Marker>
                 )
               );
             })}
           </MapContainer>
-
-          {/* User count */}
           <Box sx={{ textAlign: "center", mt: 3 }}>
             <Typography variant="h6">User Count</Typography>
             <Typography variant="h4">{userCount}</Typography>
