@@ -185,8 +185,7 @@ Once the infrastructure is deployed using either of the two approaches:
 
 3. SES Email Verification (Post-Deployment)
     - AWS Console → SES → Identity Management → **Email Addresses**  
-    - Click **Verify a New Email Address**  
-    - Enter your sender email and click **Verify**  
+    - Click on your email address and **Verify Email Address**  
     - Follow the link in the verification email  
     - Ensure the email status shows **verified**
 
