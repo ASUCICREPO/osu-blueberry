@@ -184,24 +184,22 @@ Once the infrastructure is deployed using either of the two approaches:
    - Wait for sync to complete (status will show "Available")
 
 3. SES Email Verification (Post-Deployment)
-    - AWS Console → SES → Identity Management → **Email Addresses**  
-    - Click on your email address and **Verify Email Address**  
-    - Follow the link in the verification email  
-    - Ensure the email status shows **verified**
+   - An email will be sent from AWS to the provided admin email address for verification.
+   - If you can't find the email, check the Spam folder and verify by clicking the given link.
 
-4. Add User in Cognito (Post-Deployment)
+5. Add User in Cognito (Post-Deployment)
 
     - AWS Console → Cognito → **User Pools** → `YOUR_USER_POOL_ID`  
     - Select **Users and groups** → **Create user**  
     - Fill in **Username**, **Temporary password**, and required attributes (e.g., email)  
     - Click **Create user** (the user will reset their password on first login)  
 
-5. Deploy the Frontend:
+6. Deploy the Frontend:
    - Go to AWS Console > AWS Amplify
    - Select the app created by the stack
    - Access the application URL provided by Amplify 
 
-6. Using the Application:
+7. Using the Application:
    - Once frontend deployment is complete, navigate to the Amplify URL
    - The chat interface will load with example queries
 
