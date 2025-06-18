@@ -105,9 +105,7 @@ export class BlueberryStackMain extends cdk.Stack {
     const blueberryDataSource = new bedrock.S3DataSource(this, 'DataSource', {
         bucket: BlueberryData,
         knowledgeBase: kb,
-        parsingStrategy: bedrock.ParsingStrategy.foundationModel({
-          parsingModel: bedrock.BedrockFoundationModel.ANTHROPIC_CLAUDE_HAIKU_V1_0,
-        }),
+        parsingStrategy: bedrock.ParsingStrategy.bedrockDataAutomation(),
       });
 
       const dashboardLogsBucket = new s3.Bucket(this, 'DashboardLogsBucket', {
