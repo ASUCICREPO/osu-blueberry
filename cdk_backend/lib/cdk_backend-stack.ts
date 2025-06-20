@@ -19,6 +19,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as events   from 'aws-cdk-lib/aws-events';
 import * as targets  from 'aws-cdk-lib/aws-events-targets';
+import { Topic } from '@cdklabs/generative-ai-cdk-constructs/lib/cdk-lib/bedrock/guardrails/guardrail-filters';
 
 export class BlueberryStackMain extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -132,7 +133,7 @@ export class BlueberryStackMain extends cdk.Stack {
 
       const guardrail = new bedrock.Guardrail(this, 'bedrockGuardrails-blueberry', {
         name: 'ChatbotGuardrails-Blueberries',
-        blockedOutputsMessaging: 'I am sorry, but I cannot provide that information. Plase ask me something else.',
+        blockedOutputsMessaging: 'This topic is irrelevant, not related to blueberries or agriculture.',
       });
       
       const DEFAULT_INPUT  = bedrock.ContentFilterStrength.HIGH;
@@ -159,6 +160,7 @@ export class BlueberryStackMain extends cdk.Stack {
           outputModalities: OUTPUT_MODS,
         });
       }
+      
 
 
       const prompt_for_agent = 
@@ -172,6 +174,7 @@ export class BlueberryStackMain extends cdk.Stack {
              - Say: “I'm sorry, I don't have a reliable answer right now.  
                       Could you please share your email so I can escalate this to an administrator for further help?”
              - Wait for the user to supply an email address.
+             
       
       2. Once you receive a valid email address:
          • Call the action group function notify-admin with these parameters:
@@ -180,6 +183,13 @@ export class BlueberryStackMain extends cdk.Stack {
              - **agentResponse**: the best partial answer or summary you produced (even if low confidence)
          • After invoking, reply to the user:
              - “Thanks! An administrator has been notified and will follow up at [email]. Would you like to ask any other questions?”
+
+      3. If any question is not about 'blueberry', 'blueberries', 'cultivation', 'farming', 'agriculture',
+        'weather', 'climate', 'soil', 'ph', 'irrigation', 'fertilizer',
+        'pests', 'insects', 'aphids', 'pollination', 'bees', 'birds',
+        'diseases', 'fungus', 'harvest', 'yield', 'pruning', 'varieties',
+        'virus', 'shock', 'chatBOT', 'chatbot', 'chat BOT', 'pollen' or something related, the guardrail should work.
+        Say: “I'm sorry, I can only answer questions about blueberries or agriculture. Please ask another question.”
       
       Always keep your tone professional, concise, and clear.`
       
