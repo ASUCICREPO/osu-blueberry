@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 DYNAMODB_TABLE   = os.environ['DYNAMODB_TABLE']
-BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'amazon.nova-lite-v1:0')
+BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'us.amazon.nova-lite-v1:0')
 
 # ─── AWS Clients ───────────────────────────────────────────────────────────────
 ddb      = boto3.resource('dynamodb')
